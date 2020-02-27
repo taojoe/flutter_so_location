@@ -40,6 +40,15 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
+  List<String> _enabledProviders=[];
+
+  void listEnabledProvider()async{
+    final list=await SoLocation.listEnabledProvider();
+    setState(() {
+      _enabledProviders=list;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -47,8 +56,17 @@ class _MyAppState extends State<MyApp> {
         appBar: AppBar(
           title: const Text('Plugin example app'),
         ),
-        body: Center(
-          child: Text('Running on: $_platformVersion\n'),
+        body: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Center(child: Text('Running on: $_platformVersion\n')),
+            Center(child: Text('enabledProviders: ${_enabledProviders.join(",")}\n')),
+            RaisedButton(
+              child: Text('listEnabledProvider'),
+              onPressed: listEnabledProvider
+            )
+          ],
         ),
       ),
     );

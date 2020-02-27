@@ -1,18 +1,22 @@
 package com.github.taojoe.so_location
 
-import androidx.annotation.NonNull;
+import android.content.Context
+import android.location.LocationManager
+import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.BinaryMessenger
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
 
+
 /** SoLocationPlugin */
 public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    val channel = MethodChannel(flutterPluginBinding.getFlutterEngine().getDartExecutor(), "so_location")
-    channel.setMethodCallHandler(SoLocationPlugin());
+    init(flutterPluginBinding.binaryMessenger, flutterPluginBinding.applicationContext)
   }
 
   // This static function is optional and equivalent to onAttachedToEngine. It supports the old
@@ -25,17 +29,53 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
   // depending on the user's project. onAttachedToEngine or registerWith must both be defined
   // in the same class.
   companion object {
+    val METHOD_CHANNEL_NAME="so_location/method"
+    val STREAM_CHANNEL_NAME="so_location/stream"
+    private lateinit var methodChannel : MethodChannel
+    private lateinit var eventChannel: EventChannel
+    private var eventSink: EventChannel.EventSink? = null
+    private lateinit var context: Context
+    private var locationManager: LocationManager?=null
+
+    fun init(messenger: BinaryMessenger, context: Context){
+      methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(SoLocationPlugin()) }
+      eventChannel = EventChannel(messenger, STREAM_CHANNEL_NAME).apply {
+        setStreamHandler(object :EventChannel.StreamHandler{
+          override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+            eventSink= events
+          }
+
+          override fun onCancel(arguments: Any?) {
+            eventSink=null
+          }
+        })
+      }
+      this.context=context
+      locationManager=context.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
+    }
+
     @JvmStatic
     fun registerWith(registrar: Registrar) {
-      val channel = MethodChannel(registrar.messenger(), "so_location")
-      channel.setMethodCallHandler(SoLocationPlugin())
+      init(registrar.messenger(), registrar.context())
+    }
+    fun listEnabledProvider(): List<String> {
+      return listOf<String>(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter {
+        try{
+          locationManager?.isProviderEnabled(it) ?: false
+        }catch (e: Exception){
+          false
+        }
+      }
     }
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
     if (call.method == "getPlatformVersion") {
       result.success("Android ${android.os.Build.VERSION.RELEASE}")
-    } else {
+    } else if(call.method =="listEnabledProvider"){
+      result.success(listEnabledProvider())
+    }
+    else {
       result.notImplemented()
     }
   }
