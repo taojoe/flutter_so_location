@@ -4,8 +4,13 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Criteria
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
+import android.os.Bundle
+import android.os.Looper
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -15,6 +20,7 @@ import io.flutter.plugin.common.*
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
+
 
 enum class PermissionResult{
   GRANTED, PERMISSION_DENIED, PERMISSION_DENIED_NEVER_ASK
@@ -131,6 +137,34 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
       }
     }
 
+    fun getLocation(result: Result){
+      if(!hasPermission()){
+        result.error("Permission", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
+      }
+      val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
+      locationManager!!.requestSingleUpdate(criteria, object : LocationListener {
+        override fun onLocationChanged(location: Location?) {
+          if(location==null){
+            result.error("EMPTY", null, null)
+          }else{
+            val ret=mapOf<String, Double>("latitude" to location.latitude, "longitude" to location.longitude, "altitude" to location.altitude, "accuracy" to location.accuracy.toDouble(), "speed" to location.speed.toDouble(), "heading" to location.bearing.toDouble(), "time" to location.time.toDouble())
+            result.success(ret)
+          }
+        }
+
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+
+        }
+
+        override fun onProviderEnabled(provider: String?) {
+
+        }
+
+        override fun onProviderDisabled(provider: String?) {
+
+        }
+      }, Looper.myLooper())
+    }
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -142,8 +176,9 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
       result.success(hasPermission())
     } else if(call.method=="requestPermission"){
       requestPermission(result)
-    }
-    else {
+    } else if(call.method=="getLocation"){
+      getLocation(result)
+    } else {
       result.notImplemented()
     }
   }

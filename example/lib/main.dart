@@ -66,6 +66,15 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
+  LocationData _locationData;
+
+  void getLocation()async{
+    final value=await SoLocation.getLocation();
+    setState(() {
+      _locationData=value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -92,6 +101,11 @@ class _MyAppState extends State<MyApp> {
             RaisedButton(
               child: Text('requestPermission'),
               onPressed: requestPermission
+            ),
+            Center(child: Text('getLocation: ${_locationData}\n')),
+            RaisedButton(
+              child: Text('getLocation'),
+              onPressed: getLocation
             )
           ],
         ),
