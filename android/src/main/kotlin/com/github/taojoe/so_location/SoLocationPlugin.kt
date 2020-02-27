@@ -1,20 +1,27 @@
 package com.github.taojoe.so_location
 
+import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.os.Build
 import androidx.annotation.NonNull
+import androidx.core.app.ActivityCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
-import io.flutter.plugin.common.BinaryMessenger
-import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
+import io.flutter.plugin.common.*
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.plugin.common.PluginRegistry.Registrar
 
+enum class PermissionResult{
+  GRANTED, PERMISSION_DENIED, PERMISSION_DENIED_NEVER_ASK
+}
 
 /** SoLocationPlugin */
-public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
+public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     init(flutterPluginBinding.binaryMessenger, flutterPluginBinding.applicationContext)
   }
@@ -31,14 +38,47 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
   companion object {
     val METHOD_CHANNEL_NAME="so_location/method"
     val STREAM_CHANNEL_NAME="so_location/stream"
+    val REQUEST_PERMISSIONS_REQUEST_CODE=10
+    val instance:SoLocationPlugin by lazy { SoLocationPlugin() }
     private lateinit var methodChannel : MethodChannel
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventChannel.EventSink? = null
     private lateinit var context: Context
-    private var locationManager: LocationManager?=null
+    private val locationManager: LocationManager? by lazy {
+      context.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
+    }
+    private var activityBinding: ActivityPluginBinding? = null
+    private var registrar: Registrar?=null
+    private val currentActivity:Activity?
+      get() = activityBinding?.activity ?: registrar?.activity()
 
+    private val resultListener=object : PluginRegistry.RequestPermissionsResultListener{
+      private var result:Result?=null
+
+      fun setResult(result: Result){
+        if(this.result!=null){
+          this.result?.error("CANCELLED", null, null)
+        }
+        this.result=result
+      }
+      override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>?, grantResults: IntArray?): Boolean {
+        if(requestCode == REQUEST_PERMISSIONS_REQUEST_CODE &&permissions?.firstOrNull()==Manifest.permission.ACCESS_FINE_LOCATION){
+          if(grantResults?.firstOrNull()==PackageManager.PERMISSION_GRANTED){
+            result?.success(PermissionResult.GRANTED.name)
+          }else{
+            result?.success(if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name)
+          }
+          result=null
+          return true
+        }
+        return false
+      }
+    }
+    fun shouldShowRequestPermissionRationale(): Boolean {
+      return currentActivity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) } ?: false
+    }
     fun init(messenger: BinaryMessenger, context: Context){
-      methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(SoLocationPlugin()) }
+      methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(instance) }
       eventChannel = EventChannel(messenger, STREAM_CHANNEL_NAME).apply {
         setStreamHandler(object :EventChannel.StreamHandler{
           override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
@@ -51,13 +91,15 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
         })
       }
       this.context=context
-      locationManager=context.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
     }
 
     @JvmStatic
     fun registerWith(registrar: Registrar) {
+      this.registrar=registrar
       init(registrar.messenger(), registrar.context())
+      registrar.addRequestPermissionsResultListener(resultListener)
     }
+
     fun listEnabledProvider(): List<String> {
       return listOf<String>(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter {
         try{
@@ -67,6 +109,28 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
         }
       }
     }
+
+    fun hasPermission(): Boolean{
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        return true
+      }
+      return ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==PackageManager.PERMISSION_GRANTED
+    }
+
+    fun requestPermission(result: Result){
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        result.success(PermissionResult.GRANTED.name)
+        return
+      }
+      val activity= currentActivity
+      if(activity==null){
+        result.error("FATAL", null, null)
+      }else{
+        resultListener.setResult(result)
+        ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_PERMISSIONS_REQUEST_CODE)
+      }
+    }
+
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -74,6 +138,10 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
       result.success("Android ${android.os.Build.VERSION.RELEASE}")
     } else if(call.method =="listEnabledProvider"){
       result.success(listEnabledProvider())
+    } else if(call.method =="hasPermission"){
+      result.success(hasPermission())
+    } else if(call.method=="requestPermission"){
+      requestPermission(result)
     }
     else {
       result.notImplemented()
@@ -81,5 +149,22 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler {
   }
 
   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+  }
+
+  override fun onDetachedFromActivity() {
+    activityBinding?.removeRequestPermissionsResultListener(resultListener)
+  }
+
+  override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+    binding.addRequestPermissionsResultListener(resultListener)
+    activityBinding=binding
+  }
+
+  override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+    onReattachedToActivityForConfigChanges(binding)
+  }
+
+  override fun onDetachedFromActivityForConfigChanges() {
+    onDetachedFromActivity()
   }
 }

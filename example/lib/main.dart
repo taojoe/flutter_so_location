@@ -49,6 +49,23 @@ class _MyAppState extends State<MyApp> {
     });
   }
 
+  bool _hasPermission;
+
+  void hasPermission()async{
+    final value=await SoLocation.hasPermission();
+    setState(() {
+      _hasPermission=value;
+    });
+  }
+  PermissionResult _requestPermission;
+
+  void requestPermission()async{
+    final value=await SoLocation.requestPermission();
+    setState(() {
+      _requestPermission=value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -65,6 +82,16 @@ class _MyAppState extends State<MyApp> {
             RaisedButton(
               child: Text('listEnabledProvider'),
               onPressed: listEnabledProvider
+            ),
+            Center(child: Text('hasPermission: ${_hasPermission}\n')),
+            RaisedButton(
+              child: Text('hasPermission'),
+              onPressed: hasPermission
+            ),
+            Center(child: Text('requestPermission: ${_requestPermission}\n')),
+            RaisedButton(
+              child: Text('requestPermission'),
+              onPressed: requestPermission
             )
           ],
         ),
