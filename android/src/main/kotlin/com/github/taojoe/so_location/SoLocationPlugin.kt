@@ -169,7 +169,7 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
 
     fun getLocation(result: Result){
       if(!hasPermission()){
-        result.error("Permission", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
+        result.error("PERMISSION_NOT_GRANTED", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
       }
       val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
       locationManager!!.requestSingleUpdate(criteria, object : LocationListener {
