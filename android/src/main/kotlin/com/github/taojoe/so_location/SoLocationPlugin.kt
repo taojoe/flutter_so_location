@@ -26,6 +26,10 @@ enum class PermissionResult{
   GRANTED, PERMISSION_DENIED, PERMISSION_DENIED_NEVER_ASK
 }
 
+fun Location.toMap():Map<String, Double>{
+  return mapOf<String, Double>("latitude" to this.latitude, "longitude" to this.longitude, "altitude" to this.altitude, "accuracy" to this.accuracy.toDouble(), "speed" to this.speed.toDouble(), "heading" to this.bearing.toDouble(), "time" to this.time.toDouble())
+}
+
 /** SoLocationPlugin */
 public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -80,9 +84,31 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
         return false
       }
     }
+
+    private val locationListener= object :LocationListener{
+      override fun onLocationChanged(location: Location?) {
+        if(location==null){
+          eventSink?.success(null)
+        }else{
+          eventSink?.success(location.toMap())
+        }
+      }
+
+      override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+      }
+
+      override fun onProviderEnabled(provider: String?) {
+      }
+
+      override fun onProviderDisabled(provider: String?) {
+      }
+
+    }
+
     fun shouldShowRequestPermissionRationale(): Boolean {
       return currentActivity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) } ?: false
     }
+
     fun init(messenger: BinaryMessenger, context: Context){
       methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(instance) }
       eventChannel = EventChannel(messenger, STREAM_CHANNEL_NAME).apply {
@@ -147,8 +173,7 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
           if(location==null){
             result.error("EMPTY", null, null)
           }else{
-            val ret=mapOf<String, Double>("latitude" to location.latitude, "longitude" to location.longitude, "altitude" to location.altitude, "accuracy" to location.accuracy.toDouble(), "speed" to location.speed.toDouble(), "heading" to location.bearing.toDouble(), "time" to location.time.toDouble())
-            result.success(ret)
+            result.success(location.toMap())
           }
         }
 
@@ -167,6 +192,20 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
     }
   }
 
+  fun getLastKnownLocation(provider:String):Location?{
+    return locationManager!!.getLastKnownLocation(provider)
+  }
+
+  fun startLocationUpdates(interval:Int, distance:Double){
+    locationManager!!.removeUpdates(locationListener)
+    val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
+    locationManager!!.requestLocationUpdates(interval.toLong(), distance.toFloat(), criteria, locationListener, Looper.myLooper())
+  }
+
+  fun stopLocationUpdates(){
+    locationManager!!.removeUpdates(locationListener)
+  }
+
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
     if (call.method == "getPlatformVersion") {
       result.success("Android ${android.os.Build.VERSION.RELEASE}")
@@ -178,6 +217,17 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
       requestPermission(result)
     } else if(call.method=="getLocation"){
       getLocation(result)
+    } else if(call.method=="getLastKnownLocation"){
+      val provider:String?=call.argument("provider")
+      result.success(provider?.let(::getLastKnownLocation)?.toMap())
+    }else if(call.method=="startLocationUpdates"){
+      val interval:Int?=call.argument("interval")
+      val distance:Double?=call.argument("distance")
+      startLocationUpdates(interval?:0, distance?:0.0)
+      result.success(null)
+    } else if(call.method=="stopLocationUpdates"){
+      stopLocationUpdates()
+      result.success(null)
     } else {
       result.notImplemented()
     }

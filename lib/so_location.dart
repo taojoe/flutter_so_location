@@ -24,6 +24,19 @@ class LocationData{
   String toString() {
     return "LocationData<lat: $latitude, long: $longitude>";
   }
+
+  Map<String, dynamic> toJson(){
+    return {
+      'latitude':latitude,
+      'longitude':longitude,
+      'altitude':altitude,
+      'accuracy':accuracy,
+      'speed':speed,
+      'speedAccuracy':speedAccuracy,
+      'heading':heading,
+      'time':time.toIso8601String()
+    };
+  }
   factory LocationData.fromMap(Map<String, double> dataMap) {
     return LocationData._(
       dataMap['latitude'],
@@ -39,8 +52,16 @@ class LocationData{
 }
 
 class SoLocation {
-  static const MethodChannel _channel =
-      const MethodChannel('so_location/method');
+  static const MethodChannel _channel = const MethodChannel('so_location/method');
+  static const EventChannel _streamChannel = const EventChannel('so_location/stream');
+  static Stream<LocationData> _eventStream;
+
+  static Stream<LocationData> get respEventStream {
+    if (_eventStream == null) {
+       _eventStream = _streamChannel.receiveBroadcastStream().map<LocationData>((event) => event!=null?LocationData.fromMap((event as Map<dynamic, dynamic>).cast<String, double>()):null);
+    }
+    return _eventStream;
+  }
 
   static Future<String> get platformVersion async {
     final String version = await _channel.invokeMethod('getPlatformVersion');
@@ -61,5 +82,18 @@ class SoLocation {
   static Future<LocationData> getLocation() async{
     final result = await _channel.invokeMethod('getLocation');
     return LocationData.fromMap(result.cast<String, double>());
+  }
+  static Future<LocationData> getLastKnownLocation(String provider) async{
+    final result = await _channel.invokeMethod('getLastKnownLocation', {'provider':provider});
+    if(result==null){
+      return null;
+    }
+    return LocationData.fromMap(result.cast<String, double>());
+  }
+  static Future<void> startLocationUpdates({int interval=30000, double distance=0}) async{
+    final result = await _channel.invokeMethod('startLocationUpdates', {'interval':interval, 'distance':distance});
+  }
+  static Future<void> stopLocationUpdates() async{
+    final result = await _channel.invokeMethod('stopLocationUpdates');
   }
 }
