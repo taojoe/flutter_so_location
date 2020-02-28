@@ -1,0 +1,22 @@
+PODS:
+  - Flutter (1.0.0)
+  - so_location (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - so_location (from `.symlinks/plugins/so_location/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  so_location:
+    :path: ".symlinks/plugins/so_location/ios"
+
+SPEC CHECKSUMS:
+  Flutter: 0e3d915762c693b495b44d77113d4970485de6ec
+  so_location: 37bee518efd0242138406f38ef3d1b12e42ebb43
+
+PODFILE CHECKSUM: 3dbe063e9c90a5d7c9e4e76e70a821b9e2c1d271
+
+COCOAPODS: 1.8.4

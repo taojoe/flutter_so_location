@@ -154,6 +154,10 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
         result.success(PermissionResult.GRANTED.name)
         return
       }
+      if(hasPermission()){
+        result.success(PermissionResult.GRANTED.name)
+        return
+      }
       val activity= currentActivity
       if(activity==null){
         result.error("FATAL", null, null)
