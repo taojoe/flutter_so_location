@@ -1,11 +1,5 @@
 #import "SoLocationPlugin.h"
 
-#ifdef COCOAPODS
-@import CoreLocation;
-#else
-#import <CoreLocation/CoreLocation.h>
-#endif
-
 NSString const *GRANTED = @"GRANTED";
 NSString const *PERMISSION_DENIED = @"PERMISSION_DENIED";
 
@@ -25,9 +19,12 @@ NSDictionary<NSString*,NSNumber*>* locationToDict(CLLocation *location){
     return coordinatesDict;
 }
 
-@interface OneTimeLocationResultHolder:NSObject <CLLocationManagerDelegate>
+typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
+
+@interface OneTimeLocationResultHolder()
 @property (strong, nonatomic) CLLocationManager *clLocationManager;
 @property (copy, nonatomic)   FlutterResult      result;
+@property (strong, nonatomic) OnEnd onEnd;
 @end
 
 @implementation OneTimeLocationResultHolder
@@ -38,30 +35,38 @@ NSDictionary<NSString*,NSNumber*>* locationToDict(CLLocation *location){
     self.clLocationManager=[[CLLocationManager alloc] init];
     self.clLocationManager.delegate = self;
     self.clLocationManager.desiredAccuracy = kCLLocationAccuracyBest;
-    [self.clLocationManager requestLocation];
     return self;
 }
 
--(void)clear {
+
+
+-(void)start:(OnEnd)onEnd {
+    self.onEnd=onEnd;
+    [self.clLocationManager startUpdatingLocation];
+}
+
+-(void)clear:(CLLocation *)location {
+    [self.clLocationManager stopUpdatingLocation];
     self.result=nil;
     self.clLocationManager.delegate=nil;
     self.clLocationManager=nil;
+    self.onEnd(self, location);
 }
 
 -(void)locationManager:(CLLocationManager*)manager didUpdateLocations:(NSArray<CLLocation*>*)locations {
     CLLocation *location = locations.firstObject;
     self.result(locationToDict(location));
-    [self clear];
+    [self clear:location];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
     self.result([FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]);
-    [self clear];
+    [self clear:nil];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFinishDeferredUpdatesWithError:(nullable NSError *)error API_AVAILABLE(ios(6.0), macos(10.9)) API_UNAVAILABLE(watchos, tvos){
     self.result([FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]);
-    [self clear];
+    [self clear:nil];
 }
 
 @end
@@ -72,53 +77,59 @@ NSDictionary<NSString*,NSNumber*>* locationToDict(CLLocation *location){
 
 @property (copy, nonatomic)   FlutterEventSink   flutterEventSink;
 @property (assign, nonatomic) BOOL               flutterListening;
-@property (assign, nonatomic) BOOL               hasInit;
+@property (strong, nonatomic) NSMutableSet *localSet;
+@property (strong, nonatomic) CLLocation *lastLocation;
 @end
 
 @implementation SoLocationPlugin
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar>*)registrar {
-  FlutterMethodChannel* channel = [FlutterMethodChannel methodChannelWithName:@"so_location/method" binaryMessenger:[registrar messenger]];
-  FlutterEventChannel *stream = [FlutterEventChannel eventChannelWithName:@"so_location/stream" binaryMessenger:registrar.messenger];
-  SoLocationPlugin* instance = [[SoLocationPlugin alloc] init];
-  [registrar addMethodCallDelegate:instance channel:channel];
-  [stream setStreamHandler:instance];
-  if ([CLLocationManager locationServicesEnabled]) {
-    instance.clLocationManager = [[CLLocationManager alloc] init];
-    instance.clLocationManager.delegate = instance;
-    instance.clLocationManager.desiredAccuracy = kCLLocationAccuracyBest;
-  }
+    FlutterMethodChannel* channel = [FlutterMethodChannel methodChannelWithName:@"so_location/method" binaryMessenger:[registrar messenger]];
+    FlutterEventChannel *stream = [FlutterEventChannel eventChannelWithName:@"so_location/stream" binaryMessenger:registrar.messenger];
+    SoLocationPlugin* instance = [[SoLocationPlugin alloc] init];
+    [registrar addMethodCallDelegate:instance channel:channel];
+    [stream setStreamHandler:instance];
+    instance.localSet=[[NSMutableSet alloc] init];
+    if ([CLLocationManager locationServicesEnabled]) {
+        instance.clLocationManager = [[CLLocationManager alloc] init];
+        instance.clLocationManager.delegate = instance;
+        instance.clLocationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    }
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
-  if ([@"getPlatformVersion" isEqualToString:call.method]) {
-    result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
-  }else if([@"listEnabledProvider" isEqualToString:call.method]){
-      result(@[@"iOS"]);
-  }else if([@"hasPermission" isEqualToString:call.method]){
-      result([NSNumber numberWithBool:[self isPermissionGranted]]);
-  }else if([@"requestPermission" isEqualToString:call.method]){
-      if([self isPermissionGranted]){
-          result(GRANTED);
-      }else if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
-          [self requestPermission:result];
-      } else {
-          result(PERMISSION_DENIED);
-      }
-  }else if([@"getLocation" isEqualToString:call.method]){
-      [self getLocation:result];
-  }else if([@"getLastKnownLocation" isEqualToString:call.method]){
-      result(nil);
-  }else if([@"startLocationUpdates" isEqualToString:call.method]){
-      double distanceFilter = [call.arguments[@"distanceFilter"] doubleValue];
-      if (distanceFilter == 0){
-          distanceFilter = kCLDistanceFilterNone;
-      }
-      [self startLocationUpdates:distanceFilter];
-  }else if([@"stopLocationUpdates" isEqualToString:call.method]){
-      [self stopLocationUpdates];
-  }else {
-    result(FlutterMethodNotImplemented);
-  }
+    if ([@"getPlatformVersion" isEqualToString:call.method]) {
+        result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
+    }else if([@"listEnabledProvider" isEqualToString:call.method]){
+        result(@[@"iOS"]);
+    }else if([@"hasPermission" isEqualToString:call.method]){
+        result([NSNumber numberWithBool:[self isPermissionGranted]]);
+    }else if([@"requestPermission" isEqualToString:call.method]){
+        if([self isPermissionGranted]){
+            result(GRANTED);
+        }else if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusNotDetermined) {
+            [self requestPermission:result];
+        } else {
+            result(PERMISSION_DENIED);
+        }
+    }else if([@"getLocation" isEqualToString:call.method]){
+        [self getLocation:result];
+    }else if([@"getLastKnownLocation" isEqualToString:call.method]){
+        if(self.lastLocation!=nil){
+            result(locationToDict(self.lastLocation));
+        }else{
+            result(nil);
+        }
+    }else if([@"startLocationUpdates" isEqualToString:call.method]){
+        double distanceFilter = [call.arguments[@"distanceFilter"] doubleValue];
+        if (distanceFilter == 0){
+            distanceFilter = kCLDistanceFilterNone;
+        }
+        [self startLocationUpdates:distanceFilter];
+    }else if([@"stopLocationUpdates" isEqualToString:call.method]){
+        [self stopLocationUpdates];
+    }else {
+        result(FlutterMethodNotImplemented);
+    }
 }
 -(FlutterError*)onListenWithArguments:(id)arguments eventSink:(FlutterEventSink)events {
     self.flutterEventSink = events;
@@ -183,13 +194,24 @@ NSDictionary<NSString*,NSNumber*>* locationToDict(CLLocation *location){
         result([FlutterError errorWithCode:@"PERMISSION_NOT_GRANTED" message:nil details:nil]);
         return;
     }
-    [[OneTimeLocationResultHolder alloc] initWithResult:result];
+    OneTimeLocationResultHolder *onetime=[[OneTimeLocationResultHolder alloc] initWithResult:result];
+    NSLog(@"start new");
+    [self.localSet addObject:onetime];
+    [onetime start:^(OneTimeLocationResultHolder *item, CLLocation *location) {
+        [self.localSet removeObject:item];
+        if(location!=nil){
+            self.lastLocation=location;
+            NSTimeInterval timeInSeconds = [location.timestamp timeIntervalSince1970];
+            NSLog(@"%f", timeInSeconds);
+        }
+        NSLog(@"!!!!start new end");
+    }];
+    NSLog(@"start new end");
 }
 
 -(void) startLocationUpdates:(CLLocationDistance)distanceFilter {
     self.clLocationManager.distanceFilter=distanceFilter;
     [self.clLocationManager startUpdatingLocation];
-    //[self.clLocationManager requestLocation];
 }
 -(void) stopLocationUpdates {
     [self.clLocationManager stopUpdatingLocation];
@@ -198,7 +220,7 @@ NSDictionary<NSString*,NSNumber*>* locationToDict(CLLocation *location){
 
 -(void)locationManager:(CLLocationManager*)manager didUpdateLocations:(NSArray<CLLocation*>*)locations {
     CLLocation *location = locations.firstObject;
-        NSLog(@"location stream");
+    self.lastLocation=location;
     if(self.flutterEventSink!=nil){
         self.flutterEventSink(locationToDict(location));
     }
