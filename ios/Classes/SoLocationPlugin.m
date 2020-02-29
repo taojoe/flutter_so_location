@@ -43,19 +43,26 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 
 
 -(void)start:(FlutterResult)result {
+    NSLog(@"started 0");
     [self.results addObject:[result copy]];
     [self.clLocationManager startUpdatingLocation];
+    NSLog(@"started 1");
 }
 
 -(void)clear:(id _Nullable)result {
+    NSLog(@"result 0");
     [self.clLocationManager stopUpdatingLocation];
+    NSLog(@"result 1");
     NSArray *results=[[NSArray alloc] initWithArray:self.results];
+    NSLog(@"result 2");
     [self.results removeObjectsInArray:results];
+    NSLog(@"result 3");
     for (int i = 0; i < results.count; i++)
     {
         FlutterResult flutterResult = results[i];
         flutterResult(result);
     }
+    NSLog(@"result 4");
 }
 
 -(void)locationManager:(CLLocationManager*)manager didUpdateLocations:(NSArray<CLLocation*>*)locations {
@@ -148,7 +155,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 }
 
 -(void) setLastLocation:(CLLocation *)lastLocation{
-    self.lastLocation=lastLocation;
+    //self.lastLocation=[lastLocation copy];
 }
 
 -(BOOL) isPermissionGranted {
@@ -206,6 +213,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
         return;
     }
     [self.oneTimeLocationResultHolder start:result];
+    NSLog(@"start new end");
 }
 
 -(void) startLocationUpdates:(CLLocationDistance)distanceFilter {
