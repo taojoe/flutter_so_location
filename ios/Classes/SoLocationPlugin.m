@@ -23,50 +23,59 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 
 @interface OneTimeLocationResultHolder()
 @property (strong, nonatomic) CLLocationManager *clLocationManager;
-@property (copy, nonatomic)   FlutterResult      result;
-@property (strong, nonatomic) OnEnd onEnd;
+@property (strong, nonatomic) SoLocationPlugin *plugin;
+@property (strong, nonatomic) NSMutableArray *results;
+@property (strong, nonatomic) CLLocation *lastLocation;
 @end
 
 @implementation OneTimeLocationResultHolder
 
-- (instancetype)initWithResult:(FlutterResult)result {
+- (instancetype)initWithPlugin:(SoLocationPlugin*)plugin {
     self = [super init];
-    self.result=result;
     self.clLocationManager=[[CLLocationManager alloc] init];
     self.clLocationManager.delegate = self;
     self.clLocationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    self.plugin=plugin;
+    self.results=[NSMutableArray new];
     return self;
 }
 
 
 
--(void)start:(OnEnd)onEnd {
-    self.onEnd=onEnd;
+-(void)start:(FlutterResult)result {
+    [self.results addObject:[result copy]];
     [self.clLocationManager startUpdatingLocation];
 }
 
--(void)clear:(CLLocation *)location {
+-(void)clear:(id _Nullable)result {
     [self.clLocationManager stopUpdatingLocation];
-    self.result=nil;
-    self.clLocationManager.delegate=nil;
-    self.clLocationManager=nil;
-    self.onEnd(self, location);
+    NSArray *results=[[NSArray alloc] initWithArray:self.results];
+    [self.results removeObjectsInArray:results];
+    for (int i = 0; i < results.count; i++)
+    {
+        FlutterResult flutterResult = results[i];
+        flutterResult(result);
+    }
 }
 
 -(void)locationManager:(CLLocationManager*)manager didUpdateLocations:(NSArray<CLLocation*>*)locations {
     CLLocation *location = locations.firstObject;
-    self.result(locationToDict(location));
-    [self clear:location];
+    if(location!=nil && self.lastLocation!=nil && [location.timestamp compare:self.lastLocation.timestamp]!=NSOrderedDescending){
+        location=nil;
+    }
+    if(location!=nil){
+        self.lastLocation=location;
+        [self clear:locationToDict(location)];
+        [self.plugin setLastLocation:location];
+    }
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
-    self.result([FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]);
-    [self clear:nil];
+    [self clear:[FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFinishDeferredUpdatesWithError:(nullable NSError *)error API_AVAILABLE(ios(6.0), macos(10.9)) API_UNAVAILABLE(watchos, tvos){
-    self.result([FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]);
-    [self clear:nil];
+    [self clear:[FlutterError errorWithCode:@"LOCATION_FAILED" message:nil details:nil]];
 }
 
 @end
@@ -74,10 +83,8 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 @interface SoLocationPlugin() <FlutterStreamHandler, CLLocationManagerDelegate>
 @property (strong, nonatomic) CLLocationManager *clLocationManager;
 @property (copy, nonatomic)   FlutterResult      permissionResult;
-
 @property (copy, nonatomic)   FlutterEventSink   flutterEventSink;
-@property (assign, nonatomic) BOOL               flutterListening;
-@property (strong, nonatomic) NSMutableSet *localSet;
+@property (strong, nonatomic) OneTimeLocationResultHolder *oneTimeLocationResultHolder;
 @property (strong, nonatomic) CLLocation *lastLocation;
 @end
 
@@ -88,7 +95,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
     SoLocationPlugin* instance = [[SoLocationPlugin alloc] init];
     [registrar addMethodCallDelegate:instance channel:channel];
     [stream setStreamHandler:instance];
-    instance.localSet=[[NSMutableSet alloc] init];
+    instance.oneTimeLocationResultHolder=[[OneTimeLocationResultHolder alloc] initWithPlugin:instance];
     if ([CLLocationManager locationServicesEnabled]) {
         instance.clLocationManager = [[CLLocationManager alloc] init];
         instance.clLocationManager.delegate = instance;
@@ -138,6 +145,10 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 
 -(FlutterError*)onCancelWithArguments:(id)arguments {
     return nil;
+}
+
+-(void) setLastLocation:(CLLocation *)lastLocation{
+    self.lastLocation=lastLocation;
 }
 
 -(BOOL) isPermissionGranted {
@@ -194,19 +205,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
         result([FlutterError errorWithCode:@"PERMISSION_NOT_GRANTED" message:nil details:nil]);
         return;
     }
-    OneTimeLocationResultHolder *onetime=[[OneTimeLocationResultHolder alloc] initWithResult:result];
-    NSLog(@"start new");
-    [self.localSet addObject:onetime];
-    [onetime start:^(OneTimeLocationResultHolder *item, CLLocation *location) {
-        [self.localSet removeObject:item];
-        if(location!=nil){
-            self.lastLocation=location;
-            NSTimeInterval timeInSeconds = [location.timestamp timeIntervalSince1970];
-            NSLog(@"%f", timeInSeconds);
-        }
-        NSLog(@"!!!!start new end");
-    }];
-    NSLog(@"start new end");
+    [self.oneTimeLocationResultHolder start:result];
 }
 
 -(void) startLocationUpdates:(CLLocationDistance)distanceFilter {

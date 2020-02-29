@@ -6,6 +6,7 @@
 #endif
 
 @interface SoLocationPlugin : NSObject<FlutterPlugin>
+-(void) setLastLocation:(CLLocation *)lastLocation;
 @end
 
 @interface OneTimeLocationResultHolder : NSObject<CLLocationManagerDelegate>
