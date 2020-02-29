@@ -87,7 +87,7 @@ class _MyAppState extends State<MyApp> {
     final list=await SoLocation.listEnabledProvider();
     final value=await SoLocation.getLastKnownLocation(list.first);
     setState(() {
-      _getLastKnownLocation='${value?.toJson()} ${DateTime.now()}';
+      _getLastKnownLocation='${value?.toJson()}';
     });
   }
   void startLocationUpdates()async{

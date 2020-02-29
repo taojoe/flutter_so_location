@@ -92,7 +92,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 @property (copy, nonatomic)   FlutterResult      permissionResult;
 @property (copy, nonatomic)   FlutterEventSink   flutterEventSink;
 @property (strong, nonatomic) OneTimeLocationResultHolder *oneTimeLocationResultHolder;
-@property (strong, nonatomic) CLLocation *lastLocation;
+@property (copy, nonatomic) CLLocation *_lastLocation;
 @end
 
 @implementation SoLocationPlugin
@@ -128,8 +128,8 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
     }else if([@"getLocation" isEqualToString:call.method]){
         [self getLocation:result];
     }else if([@"getLastKnownLocation" isEqualToString:call.method]){
-        if(self.lastLocation!=nil){
-            result(locationToDict(self.lastLocation));
+        if(self._lastLocation!=nil){
+            result(locationToDict(self._lastLocation));
         }else{
             result(nil);
         }
@@ -155,7 +155,7 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 }
 
 -(void) setLastLocation:(CLLocation *)lastLocation{
-    //self.lastLocation=[lastLocation copy];
+    self._lastLocation=lastLocation;
 }
 
 -(BOOL) isPermissionGranted {
@@ -227,7 +227,10 @@ typedef void (^OnEnd)(OneTimeLocationResultHolder*, CLLocation*);
 
 -(void)locationManager:(CLLocationManager*)manager didUpdateLocations:(NSArray<CLLocation*>*)locations {
     CLLocation *location = locations.firstObject;
-    self.lastLocation=location;
+    if(self._lastLocation!=nil){
+        NSLog(@"lastLocation is not nil");
+    }
+    self._lastLocation=location;
     if(self.flutterEventSink!=nil){
         self.flutterEventSink(locationToDict(location));
     }
