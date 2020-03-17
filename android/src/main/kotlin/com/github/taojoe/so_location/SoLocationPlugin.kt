@@ -229,6 +229,18 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
           result.success(location.toMap())
         }
       }
+
+      override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+        println("--- method call: onStatusChanged")
+      }
+
+      override fun onProviderEnabled(provider: String?) {
+        println("--- method call: onProviderEnabled")
+      }
+
+      override fun onProviderDisabled(provider: String?) {
+        println("--- method call: onProviderDisabled")
+      }
     }, Looper.myLooper())
   }
 
