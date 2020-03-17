@@ -30,8 +30,18 @@ fun Location.toMap():Map<String, Double>{
   return mapOf<String, Double>("latitude" to this.latitude, "longitude" to this.longitude, "altitude" to this.altitude, "accuracy" to this.accuracy.toDouble(), "speed" to this.speed.toDouble(), "heading" to this.bearing.toDouble(), "time" to this.time.toDouble())
 }
 
+interface EmptyLocationListener: LocationListener{
+  override fun onLocationChanged(location: Location?) {}
+
+  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+
+  override fun onProviderEnabled(provider: String?) {}
+
+  override fun onProviderDisabled(provider: String?) {}
+}
+
 /** SoLocationPlugin */
-public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
+public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginRegistry.RequestPermissionsResultListener {
   override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     init(flutterPluginBinding.binaryMessenger, flutterPluginBinding.applicationContext)
   }
@@ -48,66 +58,11 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
   companion object {
     val METHOD_CHANNEL_NAME="so_location/method"
     val STREAM_CHANNEL_NAME="so_location/stream"
-    val REQUEST_PERMISSIONS_REQUEST_CODE=10
+    val REQUEST_PERMISSIONS_REQUEST_CODE="so_location".hashCode()
     val instance:SoLocationPlugin by lazy { SoLocationPlugin() }
     private lateinit var methodChannel : MethodChannel
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventChannel.EventSink? = null
-    private lateinit var context: Context
-    private val locationManager: LocationManager? by lazy {
-      context.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
-    }
-    private var activityBinding: ActivityPluginBinding? = null
-    private var registrar: Registrar?=null
-    private val currentActivity:Activity?
-      get() = activityBinding?.activity ?: registrar?.activity()
-
-    private val resultListener=object : PluginRegistry.RequestPermissionsResultListener{
-      private var result:Result?=null
-
-      fun setResult(result: Result){
-        if(this.result!=null){
-          this.result?.error("CANCELLED", null, null)
-        }
-        this.result=result
-      }
-      override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>?, grantResults: IntArray?): Boolean {
-        if(requestCode == REQUEST_PERMISSIONS_REQUEST_CODE &&permissions?.firstOrNull()==Manifest.permission.ACCESS_FINE_LOCATION){
-          if(grantResults?.firstOrNull()==PackageManager.PERMISSION_GRANTED){
-            result?.success(PermissionResult.GRANTED.name)
-          }else{
-            result?.success(if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name)
-          }
-          result=null
-          return true
-        }
-        return false
-      }
-    }
-
-    private val locationListener= object :LocationListener{
-      override fun onLocationChanged(location: Location?) {
-        if(location==null){
-          eventSink?.success(null)
-        }else{
-          eventSink?.success(location.toMap())
-        }
-      }
-
-      override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
-      }
-
-      override fun onProviderEnabled(provider: String?) {
-      }
-
-      override fun onProviderDisabled(provider: String?) {
-      }
-
-    }
-
-    fun shouldShowRequestPermissionRationale(): Boolean {
-      return currentActivity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) } ?: false
-    }
 
     fun init(messenger: BinaryMessenger, context: Context){
       methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(instance) }
@@ -122,96 +77,41 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
           }
         })
       }
-      this.context=context
+      instance.applicationContext=context
     }
 
     @JvmStatic
     fun registerWith(registrar: Registrar) {
-      this.registrar=registrar
+      instance.registrar=registrar
       init(registrar.messenger(), registrar.context())
-      registrar.addRequestPermissionsResultListener(resultListener)
+      registrar.addRequestPermissionsResultListener(instance)
     }
+  }
 
-    fun listEnabledProvider(): List<String> {
-      return listOf<String>(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter {
-        try{
-          locationManager?.isProviderEnabled(it) ?: false
-        }catch (e: Exception){
-          false
-        }
-      }
-    }
+  private lateinit var applicationContext: Context
+  private val locationManager: LocationManager? by lazy {
+    applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
+  }
+  private var activityBinding: ActivityPluginBinding? = null
+  private var registrar: Registrar?=null
+  private val currentActivity:Activity?
+    get() = activityBinding?.activity ?: registrar?.activity()
 
-    fun hasPermission(): Boolean{
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-        return true
-      }
-      return ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==PackageManager.PERMISSION_GRANTED
-    }
 
-    fun requestPermission(result: Result){
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-        result.success(PermissionResult.GRANTED.name)
-        return
-      }
-      if(hasPermission()){
-        result.success(PermissionResult.GRANTED.name)
-        return
-      }
-      val activity= currentActivity
-      if(activity==null){
-        result.error("FATAL", null, null)
+  private var currentResult: Result?=null
+
+  private val locationListener = object :EmptyLocationListener{
+    override fun onLocationChanged(location: Location?) {
+      if(location==null){
+        eventSink?.success(null)
       }else{
-        resultListener.setResult(result)
-        ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_PERMISSIONS_REQUEST_CODE)
+        eventSink?.success(location.toMap())
       }
     }
-
-    fun getLocation(result: Result){
-      if(!hasPermission()){
-        result.error("PERMISSION_NOT_GRANTED", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
-      }
-      val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
-      locationManager!!.requestSingleUpdate(criteria, object : LocationListener {
-        override fun onLocationChanged(location: Location?) {
-          if(location==null){
-            result.error("EMPTY", null, null)
-          }else{
-            result.success(location.toMap())
-          }
-        }
-
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
-
-        }
-
-        override fun onProviderEnabled(provider: String?) {
-
-        }
-
-        override fun onProviderDisabled(provider: String?) {
-
-        }
-      }, Looper.myLooper())
-    }
-  }
-
-  fun getLastKnownLocation(provider:String):Location?{
-    return locationManager!!.getLastKnownLocation(provider)
-  }
-
-  fun startLocationUpdates(interval:Int, distance:Double){
-    locationManager!!.removeUpdates(locationListener)
-    val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
-    locationManager!!.requestLocationUpdates(interval.toLong(), distance.toFloat(), criteria, locationListener, Looper.myLooper())
-  }
-
-  fun stopLocationUpdates(){
-    locationManager!!.removeUpdates(locationListener)
   }
 
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
-    if (call.method == "getPlatformVersion") {
+    if(call.method == "getPlatformVersion") {
       result.success("Android ${android.os.Build.VERSION.RELEASE}")
     } else if(call.method =="listEnabledProvider"){
       result.success(listEnabledProvider())
@@ -241,11 +141,11 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
   }
 
   override fun onDetachedFromActivity() {
-    activityBinding?.removeRequestPermissionsResultListener(resultListener)
+    activityBinding?.removeRequestPermissionsResultListener(this)
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-    binding.addRequestPermissionsResultListener(resultListener)
+    binding.addRequestPermissionsResultListener(this)
     activityBinding=binding
   }
 
@@ -255,5 +155,94 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware {
 
   override fun onDetachedFromActivityForConfigChanges() {
     onDetachedFromActivity()
+  }
+
+  override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>?, grantResults: IntArray?): Boolean {
+    if(requestCode == REQUEST_PERMISSIONS_REQUEST_CODE &&permissions?.firstOrNull()==Manifest.permission.ACCESS_FINE_LOCATION){
+      if(grantResults?.firstOrNull()==PackageManager.PERMISSION_GRANTED){
+        currentResult?.success(PermissionResult.GRANTED.name)
+      }else{
+        currentResult?.success(if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name)
+      }
+      currentResult=null
+      return true
+    }
+    return false
+  }
+
+  //---
+  fun shouldShowRequestPermissionRationale(): Boolean {
+    return currentActivity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) } ?: false
+  }
+  fun setResult(result: Result){
+    if(this.currentResult!=null){
+      this.currentResult?.error("CANCELLED", null, null)
+    }
+    this.currentResult=result
+  }
+
+  fun listEnabledProvider(): List<String> {
+    return listOf<String>(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).filter {
+      try{
+        locationManager?.isProviderEnabled(it) ?: false
+      }catch (e: Exception){
+        false
+      }
+    }
+  }
+
+  fun hasPermission(): Boolean{
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      return true
+    }
+    return ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.ACCESS_FINE_LOCATION) ==PackageManager.PERMISSION_GRANTED
+  }
+
+  fun requestPermission(result: Result){
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      result.success(PermissionResult.GRANTED.name)
+      return
+    }
+    if(hasPermission()){
+      result.success(PermissionResult.GRANTED.name)
+      return
+    }
+    val activity= currentActivity
+    if(activity==null){
+      result.error("FATAL", null, null)
+    }else{
+      setResult(result)
+      ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_PERMISSIONS_REQUEST_CODE)
+    }
+  }
+
+  fun getLocation(result: Result){
+    if(!hasPermission()){
+      result.error("PERMISSION_NOT_GRANTED", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
+    }
+    val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
+    locationManager!!.requestSingleUpdate(criteria, object : EmptyLocationListener {
+      override fun onLocationChanged(location: Location?) {
+        if(location==null){
+          result.error("EMPTY", null, null)
+        }else{
+          result.success(location.toMap())
+        }
+      }
+    }, Looper.myLooper())
+  }
+
+  fun getLastKnownLocation(provider:String):Location?{
+    return locationManager!!.getLastKnownLocation(provider)
+  }
+
+  fun startLocationUpdates(interval:Int, distance:Double){
+    locationManager!!.removeUpdates(locationListener)
+    val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
+    locationManager!!.requestLocationUpdates(interval.toLong(), distance.toFloat(), criteria, locationListener, Looper.myLooper())
+  }
+
+  fun stopLocationUpdates(){
+    locationManager!!.removeUpdates(locationListener)
   }
 }
