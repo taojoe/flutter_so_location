@@ -64,6 +64,12 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventChannel.EventSink? = null
 
+    private lateinit var applicationContext: Context
+    private var activityBinding: ActivityPluginBinding? = null
+    private var registrar: Registrar?=null
+    private val currentActivity:Activity?
+      get() = activityBinding?.activity ?: registrar?.activity()
+
     fun init(messenger: BinaryMessenger, context: Context){
       methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME).apply { setMethodCallHandler(instance) }
       eventChannel = EventChannel(messenger, STREAM_CHANNEL_NAME).apply {
@@ -71,32 +77,26 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
           override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
             eventSink= events
           }
-
           override fun onCancel(arguments: Any?) {
             eventSink=null
           }
         })
       }
-      instance.applicationContext=context
+      applicationContext=context
     }
 
     @JvmStatic
     fun registerWith(registrar: Registrar) {
-      instance.registrar=registrar
+      this.registrar=registrar
       init(registrar.messenger(), registrar.context())
       registrar.addRequestPermissionsResultListener(instance)
     }
   }
 
-  private lateinit var applicationContext: Context
+
   private val locationManager: LocationManager? by lazy {
     applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
   }
-  private var activityBinding: ActivityPluginBinding? = null
-  private var registrar: Registrar?=null
-  private val currentActivity:Activity?
-    get() = activityBinding?.activity ?: registrar?.activity()
-
 
   private var currentResult: Result?=null
 
@@ -172,7 +172,7 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
 
   //---
   fun shouldShowRequestPermissionRationale(): Boolean {
-    return currentActivity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) } ?: false
+    return currentActivity!!.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.ACCESS_FINE_LOCATION) }
   }
   fun setResult(result: Result){
     if(this.currentResult!=null){
