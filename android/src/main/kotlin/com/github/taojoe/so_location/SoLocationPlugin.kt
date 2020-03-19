@@ -8,9 +8,7 @@ import android.location.Criteria
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Build
-import android.os.Bundle
-import android.os.Looper
+import android.os.*
 import androidx.annotation.NonNull
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -23,28 +21,52 @@ import io.flutter.plugin.common.PluginRegistry.Registrar
 
 
 enum class PermissionResult{
-  GRANTED, PERMISSION_DENIED, PERMISSION_DENIED_NEVER_ASK
+    GRANTED, PERMISSION_DENIED, PERMISSION_DENIED_NEVER_ASK
 }
 
 fun Location.toMap():Map<String, Double>{
-  return mapOf<String, Double>("latitude" to this.latitude, "longitude" to this.longitude, "altitude" to this.altitude, "accuracy" to this.accuracy.toDouble(), "speed" to this.speed.toDouble(), "heading" to this.bearing.toDouble(), "time" to this.time.toDouble())
+    return mapOf<String, Double>("latitude" to this.latitude, "longitude" to this.longitude, "altitude" to this.altitude, "accuracy" to this.accuracy.toDouble(), "speed" to this.speed.toDouble(), "heading" to this.bearing.toDouble(), "time" to this.time.toDouble())
 }
 
 interface EmptyLocationListener: LocationListener{
-  override fun onLocationChanged(location: Location?) {}
+    override fun onLocationChanged(location: Location?) {}
 
-  override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
 
-  override fun onProviderEnabled(provider: String?) {}
+    override fun onProviderEnabled(provider: String?) {}
 
-  override fun onProviderDisabled(provider: String?) {}
+    override fun onProviderDisabled(provider: String?) {}
+}
+
+class OnceResult(val innerResult: Result): Result{
+    private var submitted=false
+    override fun notImplemented() {
+        if(!submitted){
+            submitted=true
+            innerResult.notImplemented()
+        }
+    }
+
+    override fun error(errorCode: String?, errorMessage: String?, errorDetails: Any?) {
+        if(!submitted){
+            submitted=true
+            innerResult.error(errorCode, errorMessage, errorDetails)
+        }
+    }
+
+    override fun success(result: Any?) {
+        if(!submitted){
+            submitted=true
+            innerResult.success(result)
+        }
+    }
 }
 
 /** SoLocationPlugin */
 public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, PluginRegistry.RequestPermissionsResultListener {
-  override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-    init(flutterPluginBinding.binaryMessenger, flutterPluginBinding.applicationContext)
-  }
+    override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        init(flutterPluginBinding.binaryMessenger, flutterPluginBinding.applicationContext)
+    }
 
   // This static function is optional and equivalent to onAttachedToEngine. It supports the old
   // pre-Flutter-1.12 Android projects. You are encouraged to continue supporting
@@ -94,11 +116,11 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
   }
 
 
-  private val locationManager: LocationManager? by lazy {
-    applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
-  }
+    private val locationManager: LocationManager? by lazy {
+        applicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager?
+    }
 
-  private var currentResult: Result?=null
+    private var currentResult: Result?=null
 
   private val locationListener = object :EmptyLocationListener{
     override fun onLocationChanged(location: Location?) {
@@ -115,12 +137,19 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
       result.success("Android ${android.os.Build.VERSION.RELEASE}")
     } else if(call.method =="listEnabledProvider"){
       result.success(listEnabledProvider())
+    } else if(call.method =="isLocationEnabled"){
+      var isLocationEnabled=true
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        isLocationEnabled=locationManager!!.isLocationEnabled
+      }
+      result.success(isLocationEnabled)
     } else if(call.method =="hasPermission"){
       result.success(hasPermission())
     } else if(call.method=="requestPermission"){
       requestPermission(result)
     } else if(call.method=="getLocation"){
-      getLocation(result)
+      val timeout:Number?=call.argument("timeout")
+      getLocation(result, timeout?.toLong() ?:1000)
     } else if(call.method=="getLastKnownLocation"){
       val provider:String?=call.argument("provider")
       result.success(provider?.let(::getLastKnownLocation)?.toMap())
@@ -216,32 +245,25 @@ public class SoLocationPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, 
     }
   }
 
-  fun getLocation(result: Result){
-    if(!hasPermission()){
-      result.error("PERMISSION_NOT_GRANTED", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
-    }
-    val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
-    locationManager!!.requestSingleUpdate(criteria, object : EmptyLocationListener {
-      override fun onLocationChanged(location: Location?) {
-        if(location==null){
-          result.error("EMPTY", null, null)
-        }else{
-          result.success(location.toMap())
-        }
+  fun getLocation(result: Result, timeout:Long){
+      if(!hasPermission()){
+          result.error("PERMISSION_NOT_GRANTED", if(shouldShowRequestPermissionRationale()) PermissionResult.PERMISSION_DENIED.name else PermissionResult.PERMISSION_DENIED_NEVER_ASK.name, null)
       }
-
-      override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
-        println("--- method call: onStatusChanged")
-      }
-
-      override fun onProviderEnabled(provider: String?) {
-        println("--- method call: onProviderEnabled")
-      }
-
-      override fun onProviderDisabled(provider: String?) {
-        println("--- method call: onProviderDisabled")
-      }
-    }, Looper.myLooper())
+      val onceResult=OnceResult(result)
+      val criteria = Criteria().apply { accuracy = Criteria.ACCURACY_FINE }
+      Handler(Looper.myLooper()).postAtTime({
+          println("!!!!!TIMEOUT")
+          onceResult.error("TIMEOUT", null, null)
+      },  SystemClock.uptimeMillis()+timeout)
+      locationManager!!.requestSingleUpdate(criteria, object : EmptyLocationListener {
+          override fun onLocationChanged(location: Location?) {
+              if(location==null){
+                  onceResult.error("EMPTY", null, null)
+              }else{
+                  onceResult.success(location.toMap())
+              }
+          }
+      }, Looper.myLooper())
   }
 
   fun getLastKnownLocation(provider:String):Location?{

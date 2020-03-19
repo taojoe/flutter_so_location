@@ -71,6 +71,10 @@ class SoLocation {
     final List<dynamic> list = await _channel.invokeMethod('listEnabledProvider');
     return list.cast<String>();
   }
+  static Future<bool> isLocationEnabled() async{
+    final bool result = await _channel.invokeMethod('isLocationEnabled');
+    return result;
+  }
   static Future<bool> hasPermission() async{
     final bool result = await _channel.invokeMethod('hasPermission');
     return result;
@@ -79,8 +83,8 @@ class SoLocation {
     final String result = await _channel.invokeMethod('requestPermission');
     return PermissionResult.values.firstWhere((item) => item.toString().endsWith(result), orElse: ()=> throw Exception('PermissionResult not match'));
   }
-  static Future<LocationData> getLocation() async{
-    final result = await _channel.invokeMethod('getLocation');
+  static Future<LocationData> getLocation({int timeout=1000}) async{
+    final result = await _channel.invokeMethod('getLocation', {"timeout":timeout});
     return LocationData.fromMap(result.cast<String, double>());
   }
   static Future<LocationData> getLastKnownLocation(String provider) async{

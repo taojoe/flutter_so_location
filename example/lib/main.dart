@@ -21,6 +21,7 @@ class _MyAppState extends State<MyApp> {
     initPlatformState();
     location_subscription=SoLocation.respEventStream.listen((event) {
       setState(() {
+        print(event.toString()+":"+DateTime.now().toString());
         _currentLocation=event;
       });
     });
@@ -91,7 +92,7 @@ class _MyAppState extends State<MyApp> {
     });
   }
   void startLocationUpdates()async{
-    await SoLocation.startLocationUpdates(interval: 10000);
+    await SoLocation.startLocationUpdates(interval: 5000);
   }
 
   void stopLocationUpdates()async{
